@@ -59,6 +59,7 @@
         const CheckCircle = (props) => <IconBase {...props}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></IconBase>;
         const AlertCircle = (props) => <IconBase {...props}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></IconBase>;
         const Download = (props) => <IconBase {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></IconBase>;
+        const Upload = (props) => <IconBase {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></IconBase>;
 
         // --- Helper Functions ---
         const calculateJuzuk = (page) => {
@@ -137,7 +138,8 @@
             };
 
             const postData = async (payload) => {
-                setIsLoading(true);
+                // Note: Intentionally NOT showing global loading overlay for sequential bulk inserts 
+                // to allow UI updates, or handle specifically. Here we use simplified fetch.
                 try {
                     const response = await fetch(GOOGLE_SCRIPT_URL, {
                         method: "POST",
@@ -148,8 +150,6 @@
                 } catch (error) {
                     console.error("Error posting:", error);
                     return { status: "error" };
-                } finally {
-                    setIsLoading(false);
                 }
             };
 
@@ -178,6 +178,7 @@
                 e.preventDefault();
                 if (!selectedStudentId) return showNotify("Pilih murid dahulu", "error");
 
+                setIsLoading(true);
                 const newLog = {
                     id: generateId(),
                     studentId: selectedStudentId,
@@ -189,6 +190,7 @@
 
                 const payload = { action: "addLog", ...newLog };
                 await postData(payload);
+                setIsLoading(false);
                 showNotify("Rekod disimpan!", "success");
                 
                 setCurrentRecord(prev => ({ ...prev, halaman: '', juzuk: '', catatan: '' }));
@@ -199,12 +201,62 @@
 
             const handleAddStudent = async () => {
                 if (!newStudentName || !newStudentClass) return;
+                setIsLoading(true);
                 const newStudent = { id: generateId(), name: newStudentName, kelas: newStudentClass };
                 setStudents([...students, newStudent]);
                 await postData({ action: "addStudent", ...newStudent });
+                setIsLoading(false);
                 setNewStudentName('');
                 setNewStudentClass('');
                 showNotify("Murid ditambah", "success");
+            };
+
+            // --- CSV Upload Logic ---
+            const handleCSVUpload = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                setIsLoading(true);
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const text = event.target.result;
+                    const rows = text.split('\n').slice(1); // Skip header
+                    const newStudents = [];
+                    
+                    // 1. Parse data locally first
+                    for(let row of rows) {
+                        const cols = row.split(',');
+                        if(cols.length >= 2) {
+                            const name = cols[0].trim();
+                            const kelas = cols[1].trim();
+                            if(name && kelas) {
+                                newStudents.push({ id: generateId(), name, kelas });
+                            }
+                        }
+                    }
+
+                    if (newStudents.length === 0) {
+                        setIsLoading(false);
+                        showNotify("Tiada data sah ditemui dalam CSV", "error");
+                        return;
+                    }
+
+                    // 2. Update UI Immediately (Optimistic)
+                    setStudents(prev => [...prev, ...newStudents]);
+                    
+                    // 3. Send to Cloud sequentially to avoid rate limits/errors with basic script
+                    // Note: Ideally backend handles batch, but this works with existing backend script
+                    let successCount = 0;
+                    for (const student of newStudents) {
+                        await postData({ action: "addStudent", ...student });
+                        successCount++;
+                    }
+
+                    setIsLoading(false);
+                    showNotify(`${successCount} murid berjaya diimport!`, "success");
+                    e.target.value = null; // Reset input
+                };
+                reader.readAsText(file);
             };
 
             const generateIndividualPDF = (student) => {
@@ -278,7 +330,7 @@
                         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
                             <div className="bg-white p-4 rounded-lg shadow-xl flex items-center space-x-3">
                                 <div className="loader"></div>
-                                <span className="font-medium text-gray-700">Menghubungi Pelayan...</span>
+                                <span className="font-medium text-gray-700">Sedang Memproses...</span>
                             </div>
                         </div>
                     )}
@@ -407,15 +459,43 @@
 
                         {activeTab === 'murid' && (
                             <div className="space-y-8">
-                                <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200 max-w-2xl mx-auto">
-                                    <h3 className="font-bold text-xl text-gray-800 mb-6 flex items-center border-b pb-4 border-gray-100"><Users className="w-6 h-6 mr-3 text-gray-600"/> Pendaftaran Murid</h3>
-                                    <div className="grid grid-cols-1 gap-5">
-                                        <input type="text" placeholder="Nama Penuh Murid" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="border-gray-300 p-3 rounded-lg border bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none transition-all"/>
-                                        <input type="text" placeholder="Kelas (Contoh: 1 Ibnu Sina)" value={newStudentClass} onChange={(e) => setNewStudentClass(e.target.value)} className="border-gray-300 p-3 rounded-lg border bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none transition-all"/>
-                                        <button onClick={handleAddStudent} className="bg-gray-800 text-white py-3 rounded-lg hover:bg-gray-700 font-medium shadow-sm transition-colors">Daftar Murid</button>
+                                {/* Registration Cards Grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+                                    {/* Card 1: Manual Registration */}
+                                    <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+                                        <h3 className="font-bold text-xl text-gray-800 mb-6 flex items-center border-b pb-4 border-gray-100">
+                                            <Users className="w-6 h-6 mr-3 text-gray-600"/> Pendaftaran Manual
+                                        </h3>
+                                        <div className="grid grid-cols-1 gap-5">
+                                            <input type="text" placeholder="Nama Penuh Murid" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="border-gray-300 p-3 rounded-lg border bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none transition-all"/>
+                                            <input type="text" placeholder="Kelas (Contoh: 1 Ibnu Sina)" value={newStudentClass} onChange={(e) => setNewStudentClass(e.target.value)} className="border-gray-300 p-3 rounded-lg border bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none transition-all"/>
+                                            <button onClick={handleAddStudent} className="bg-gray-800 text-white py-3 rounded-lg hover:bg-gray-700 font-medium shadow-sm transition-colors">Daftar Murid</button>
+                                        </div>
+                                    </div>
+
+                                    {/* Card 2: CSV Upload */}
+                                    <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+                                        <h3 className="font-bold text-xl text-gray-800 mb-6 flex items-center border-b pb-4 border-gray-100">
+                                            <Upload className="w-6 h-6 mr-3 text-gray-600"/> Import CSV
+                                        </h3>
+                                        <div className="flex flex-col justify-between h-full">
+                                            <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-6 text-center mb-4">
+                                                <FileText className="w-10 h-10 text-gray-400 mx-auto mb-3"/>
+                                                <p className="text-sm text-gray-600 mb-1 font-medium">Muat naik fail .csv</p>
+                                                <p className="text-xs text-gray-500">Format: <b>Nama Murid, Kelas</b></p>
+                                                <p className="text-xs text-gray-400 mt-2">(Baris pertama diabaikan sebagai header)</p>
+                                            </div>
+                                            <input 
+                                                type="file" 
+                                                accept=".csv" 
+                                                onChange={handleCSVUpload}
+                                                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-800 file:text-white hover:file:bg-gray-700 transition-all cursor-pointer"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mt-6">
                                     <div className="p-5 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
                                         <h3 className="font-bold text-gray-700">Direktori Murid</h3>
                                         <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="border-gray-300 rounded-md border p-1.5 text-sm bg-white focus:ring-1 focus:ring-gray-500">
