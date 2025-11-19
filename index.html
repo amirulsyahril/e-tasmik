@@ -34,7 +34,8 @@
     <script type="text/babel">
         // --- KONFIGURASI GOOGLE SHEETS ---
         // Gantikan URL di bawah dengan URL Web App anda dari Google Apps Script Deployment
-        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzAl5HuksWtvOhdXA6AjB1_3O4ZjqWXqI3XilMV6c_NR4CPCoxqeqr3OBU19ahxaHLx/exec"; 
+        // Pastikan tiada ruang kosong di hujung URL
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwSwGhRotEtwmwMX8LVDLfdY5a034ZcGnRXQEJTREYm1SPIJ7oSj-vjsokXCGXPrIVF/exec"; 
 
         // --- SUPPRESS CONSOLE WARNINGS ---
         const originalConsoleError = console.error;
@@ -100,6 +101,7 @@
             const [isConfigured, setIsConfigured] = useState(false);
 
             // Form States
+            const [selectedYear, setSelectedYear] = useState('');
             const [selectedClass, setSelectedClass] = useState('');
             const [selectedStudentId, setSelectedStudentId] = useState('');
             const [currentRecord, setCurrentRecord] = useState({
@@ -113,43 +115,59 @@
             });
 
             // --- GOOGLE SHEETS INTEGRATION ---
+            const cleanUrl = (url) => url ? url.trim() : "";
+
             const fetchData = async () => {
-                if(GOOGLE_SCRIPT_URL.includes("PASTE_URL")) {
+                const url = cleanUrl(GOOGLE_SCRIPT_URL);
+                if(!url || url.includes("PASTE_URL")) {
                     setIsConfigured(false);
                     return;
                 }
                 setIsConfigured(true);
                 setIsLoading(true);
                 try {
-                    const response = await fetch(GOOGLE_SCRIPT_URL);
+                    // Add timestamp to bypass cache issues
+                    const response = await fetch(`${url}?v=${Date.now()}`);
                     const data = await response.json();
                     if(data.status === 'success') {
-                        const validStudents = data.students.filter(s => s && s.name);
+                        const validStudents = data.students
+                            .filter(s => s && s.name)
+                            .map(s => ({
+                                id: s.id || generateId(), // Ensure ID exists
+                                name: s.name,
+                                tahun: s.tahun || '-', 
+                                kelas: s.kelas || 'Tiada Kelas'
+                            }));
+                        
+                        // Deduplicate students by ID (in case Sheet has dupes)
+                        const uniqueStudents = Array.from(new Map(validStudents.map(s => [s.id, s])).values());
+
                         const validLogs = data.logs.filter(l => l && l.studentId);
-                        setStudents(validStudents);
+                        setStudents(uniqueStudents);
                         setLogs(validLogs);
                         showNotify("Data berjaya dimuat turun", "success");
+                    } else {
+                        throw new Error("Invalid data format");
                     }
                 } catch (error) {
                     console.error("Error fetching data:", error);
-                    showNotify("Gagal menyambung ke Cloud", "error");
+                    showNotify("Gagal memuat data (Pastikan akses 'Anyone' aktif)", "error");
                 } finally {
                     setIsLoading(false);
                 }
             };
 
             const postData = async (payload) => {
+                const url = cleanUrl(GOOGLE_SCRIPT_URL);
                 try {
-                    // FIX: Use no-cors mode to prevent "Load failed" errors from GAS redirects
-                    await fetch(GOOGLE_SCRIPT_URL, {
+                    // Use no-cors to avoid blocking, send as plain text
+                    await fetch(url, {
                         method: "POST",
                         mode: "no-cors", 
-                        headers: {
-                            "Content-Type": "text/plain"
-                        },
+                        headers: { "Content-Type": "text/plain" },
                         body: JSON.stringify(payload)
                     });
-                    // Assume success since we can't read response in no-cors mode
+                    // Assume success as we cannot read response in no-cors
                     return { status: "success" };
                 } catch (error) {
                     console.error("Error posting:", error);
@@ -157,17 +175,24 @@
                 }
             };
 
-            useEffect(() => {
-                fetchData();
-            }, []);
+            useEffect(() => { fetchData(); }, []);
+
+            // Filtering Logic
+            // Added .filter(Boolean) to remove empty strings/nulls/undefined from lists
+            const yearList = useMemo(() => [...new Set(students.map(s => s.tahun))].filter(Boolean).sort(), [students]);
+            
+            const classList = useMemo(() => {
+                let filtered = students;
+                if (selectedYear) filtered = filtered.filter(s => s.tahun === selectedYear);
+                return [...new Set(filtered.map(s => s.kelas))].filter(Boolean).sort();
+            }, [students, selectedYear]);
 
             const filteredStudents = useMemo(() => {
-                return selectedClass ? students.filter(s => s.kelas === selectedClass) : [];
-            }, [selectedClass, students]);
-
-            const classList = useMemo(() => {
-                return [...new Set(students.map(s => s.kelas))].sort();
-            }, [students]);
+                return students.filter(s => 
+                    (!selectedYear || s.tahun === selectedYear) && 
+                    (!selectedClass || s.kelas === selectedClass)
+                );
+            }, [selectedYear, selectedClass, students]);
 
             const handlePageChange = (e) => {
                 const page = parseInt(e.target.value);
@@ -201,46 +226,36 @@
             };
 
             const [newStudentName, setNewStudentName] = useState('');
+            const [newStudentYear, setNewStudentYear] = useState('');
             const [newStudentClass, setNewStudentClass] = useState('');
 
             const handleAddStudent = async () => {
-                if (!newStudentName || !newStudentClass) return;
+                if (!newStudentName || !newStudentYear || !newStudentClass) return showNotify("Sila isi semua maklumat", "error");
                 setIsLoading(true);
 
-                // Check Duplicate
                 const existingStudent = students.find(s => s.name.toLowerCase() === newStudentName.toLowerCase());
                 
                 let studentData;
                 if (existingStudent) {
-                    // UPDATE MODE (Rewrite)
-                    studentData = { id: existingStudent.id, name: existingStudent.name, kelas: newStudentClass }; 
-                    
-                    // Update local state
+                    studentData = { id: existingStudent.id, name: existingStudent.name, tahun: newStudentYear, kelas: newStudentClass };
                     setStudents(students.map(s => s.id === existingStudent.id ? studentData : s));
-                    showNotify("Maklumat murid dikemaskini (Rewrite)", "success");
+                    showNotify("Data dikemaskini (Rewrite)", "success");
                 } else {
-                    // INSERT MODE
-                    studentData = { id: generateId(), name: newStudentName, kelas: newStudentClass };
+                    studentData = { id: generateId(), name: newStudentName, tahun: newStudentYear, kelas: newStudentClass };
                     setStudents([...students, studentData]);
                     showNotify("Murid ditambah", "success");
                 }
 
-                // Send to Cloud
                 await postData({ action: "addStudent", ...studentData });
-                
                 setIsLoading(false);
-                setNewStudentName('');
-                setNewStudentClass('');
+                setNewStudentName(''); setNewStudentYear(''); setNewStudentClass('');
             };
 
             const handleDeleteStudent = async (id) => {
-                if(!confirm("Adakah anda pasti mahu memadam murid ini? Data akan dipadam dari paparan.")) return;
-                
+                if(!confirm("Adakah anda pasti mahu memadam murid ini?")) return;
                 setStudents(students.filter(s => s.id !== id));
                 setLogs(logs.filter(l => l.studentId !== id));
-                
                 await postData({ action: "deleteStudent", id: id });
-                
                 showNotify("Murid berjaya dipadam", "success");
             };
 
@@ -256,49 +271,50 @@
                     const rows = text.split('\n').slice(1); // Skip header
                     const studentsToProcess = [];
                     
-                    const studentMap = new Map(students.map(s => [s.name.toLowerCase(), s]));
+                    // Initialize map with current students
+                    const studentMap = new Map(students.map(s => [s.name.toLowerCase(), s.id]));
                     
                     for(let row of rows) {
                         const cols = row.split(',');
-                        if(cols.length >= 2) {
+                        if(cols.length >= 3) { // Expecting: Nama, Tahun, Kelas
                             const name = cols[0].trim();
-                            const kelas = cols[1].trim();
+                            const tahun = cols[1].trim();
+                            const kelas = cols[2].trim();
                             
-                            if(name && kelas) {
+                            if(name && tahun && kelas) {
                                 let studentId;
-                                if (studentMap.has(name.toLowerCase())) {
-                                    studentId = studentMap.get(name.toLowerCase()).id;
+                                const nameKey = name.toLowerCase();
+                                
+                                // Check both existing students AND students already processed in this batch
+                                if (studentMap.has(nameKey)) {
+                                    studentId = studentMap.get(nameKey);
                                 } else {
                                     studentId = generateId();
+                                    studentMap.set(nameKey, studentId); // Add to map for subsequent rows
                                 }
-                                studentsToProcess.push({ id: studentId, name, kelas });
+                                
+                                studentsToProcess.push({ id: studentId, name, tahun, kelas });
                             }
                         }
                     }
 
                     if (studentsToProcess.length === 0) {
                         setIsLoading(false);
-                        showNotify("Tiada data sah ditemui dalam CSV", "error");
+                        showNotify("Tiada data sah. Format: Nama, Tahun, Kelas", "error");
                         return;
                     }
 
-                    // Update Local State
                     const newStudentState = [...students];
                     for(const p of studentsToProcess) {
                         const idx = newStudentState.findIndex(s => s.id === p.id);
-                        if(idx > -1) {
-                            newStudentState[idx] = { ...newStudentState[idx], kelas: p.kelas }; 
-                        } else {
-                            newStudentState.push(p);
-                        }
-                        
-                        // Sync to Cloud
-                        await postData({ action: "addStudent", id: p.id, name: p.name, kelas: p.kelas });
+                        if(idx > -1) newStudentState[idx] = p;
+                        else newStudentState.push(p);
+                        await postData({ action: "addStudent", ...p });
                     }
 
                     setStudents(newStudentState);
                     setIsLoading(false);
-                    showNotify(`${studentsToProcess.length} murid diproses!`, "success");
+                    showNotify(`${studentsToProcess.length} data diproses!`, "success");
                     e.target.value = null;
                 };
                 reader.readAsText(file);
@@ -308,7 +324,7 @@
                 const doc = new jspdf.jsPDF();
                 const studentLogs = logs.filter(l => l.studentId === student.id).sort((a,b) => new Date(a.tarikh) - new Date(b.tarikh));
                 doc.setFontSize(18); doc.text(`Laporan: ${student.name}`, 14, 20);
-                doc.setFontSize(12); doc.text(`Kelas: ${student.kelas}`, 14, 30);
+                doc.setFontSize(12); doc.text(`Tahun: ${student.tahun} | Kelas: ${student.kelas}`, 14, 30);
                 const tableData = studentLogs.map(log => [formatDate(log.tarikh), log.tahap, log.tahap === 'Al-Quran' ? `Juz ${log.juzuk} (Hlm ${log.halaman})` : log.halaman || '-', log.kualiti, log.catatan]);
                 doc.autoTable({ startY: 45, head: [['Tarikh', 'Tahap', 'Bacaan', 'Kualiti', 'Catatan']], body: tableData, theme: 'grid' });
                 doc.save(`Laporan_${student.name}.pdf`);
@@ -316,13 +332,13 @@
 
             const generateFullReportPDF = () => {
                 const doc = new jspdf.jsPDF();
-                doc.setFontSize(18); doc.text(`Laporan Keseluruhan Kelas`, 14, 20);
+                doc.setFontSize(18); doc.text(`Laporan Keseluruhan`, 14, 20);
                 const tableData = students.map(student => {
                     const studentLogs = logs.filter(l => l.studentId === student.id);
                     const lastLog = studentLogs.length > 0 ? studentLogs[0] : null; 
-                    return [student.name, student.kelas, lastLog ? lastLog.tahap : 'Tiada', lastLog && lastLog.tahap === 'Al-Quran' ? `Juz ${lastLog.juzuk}` : '-'];
+                    return [student.name, student.tahun, student.kelas, lastLog ? lastLog.tahap : 'Tiada', lastLog && lastLog.tahap === 'Al-Quran' ? `Juz ${lastLog.juzuk}` : '-'];
                 });
-                doc.autoTable({ startY: 30, head: [['Nama', 'Kelas', 'Tahap', 'Pencapaian']], body: tableData, theme: 'grid' });
+                doc.autoTable({ startY: 30, head: [['Nama', 'Tahun', 'Kelas', 'Tahap', 'Pencapaian']], body: tableData, theme: 'grid' });
                 doc.save('Laporan_Keseluruhan.pdf');
             };
 
@@ -370,7 +386,6 @@
 
             return (
                 <div className="min-h-screen pb-10 relative text-gray-800">
-                    {/* Loading Overlay */}
                     {isLoading && (
                         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
                             <div className="bg-white p-4 rounded-lg shadow-xl flex items-center space-x-3">
@@ -419,35 +434,52 @@
                                         </h2>
                                         <div className="space-y-4">
                                             <div>
+                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1 tracking-wide">Tahun</label>
+                                                <select value={selectedYear} onChange={(e) => { setSelectedYear(e.target.value); setSelectedClass(''); setSelectedStudentId(''); }} className="w-full bg-gray-50 border-gray-300 rounded-md shadow-sm border p-2.5 focus:ring-2 focus:ring-gray-500 transition-shadow">
+                                                    <option value="">-- Pilih Tahun --</option>
+                                                    {yearList.map(y => <option key={y} value={y}>{y}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
                                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1 tracking-wide">Kelas</label>
-                                                <select value={selectedClass} onChange={(e) => { setSelectedClass(e.target.value); setSelectedStudentId(''); }} className="w-full bg-gray-50 border-gray-300 rounded-md shadow-sm border p-2.5 focus:ring-2 focus:ring-gray-500 focus:border-gray-500 transition-shadow">
+                                                <select value={selectedClass} onChange={(e) => { setSelectedClass(e.target.value); setSelectedStudentId(''); }} disabled={!selectedYear} className="w-full bg-gray-50 border-gray-300 rounded-md shadow-sm border p-2.5 disabled:bg-gray-100 transition-shadow">
                                                     <option value="">-- Pilih Kelas --</option>
                                                     {classList.map(c => <option key={c} value={c}>{c}</option>)}
                                                 </select>
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1 tracking-wide">Nama Murid</label>
-                                                <select value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)} disabled={!selectedClass} className="w-full bg-gray-50 border-gray-300 rounded-md shadow-sm border p-2.5 disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-gray-500 focus:border-gray-500 transition-shadow">
+                                                <select value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)} disabled={!selectedClass} className="w-full bg-gray-50 border-gray-300 rounded-md shadow-sm border p-2.5 disabled:bg-gray-100 transition-shadow">
                                                     <option value="">-- Pilih Nama --</option>
                                                     {filteredStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                                 </select>
                                             </div>
                                         </div>
                                     </div>
+                                    
+                                    {/* Display Last Record if student selected */}
                                     {selectedStudentId && (() => {
                                         const lastLog = getLatestLog(selectedStudentId);
                                         const curStudent = students.find(s => s.id === selectedStudentId);
                                         return (
                                             <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 shadow-sm">
-                                                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 border-b border-gray-200 pb-2">Status Terkini</h3>
+                                                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 border-b border-gray-200 pb-2">
+                                                    {curStudent ? `${curStudent.name} (${curStudent.tahun} - ${curStudent.kelas})` : 'Status Terkini'}
+                                                </h3>
                                                 {lastLog ? (
                                                     <div className="space-y-3 text-sm">
-                                                        <div className="flex justify-between items-center"><span className="text-gray-500">Tarikh</span> <span className="font-semibold text-gray-800">{formatDate(lastLog.tarikh)}</span></div>
+                                                        <div className="flex justify-between items-center"><span className="text-gray-500">Tarikh Akhir</span> <span className="font-semibold text-gray-800">{formatDate(lastLog.tarikh)}</span></div>
                                                         <div className="flex justify-between items-center"><span className="text-gray-500">Tahap</span> <span className="px-2 py-0.5 bg-gray-200 rounded text-gray-700 font-semibold text-xs">{lastLog.tahap}</span></div>
-                                                        {lastLog.tahap === 'Al-Quran' && <div className="flex justify-between items-center"><span className="text-gray-500">Lokasi</span> <span className="font-semibold text-gray-800">Juz {lastLog.juzuk} / Hlm {lastLog.halaman}</span></div>}
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-gray-500">Halaman Terkini</span> 
+                                                            <span className="font-semibold text-gray-800">
+                                                                {lastLog.tahap === 'Al-Quran' ? `Juz ${lastLog.juzuk} / Hlm ${lastLog.halaman}` : `Halaman ${lastLog.halaman}`}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center"><span className="text-gray-500">Kualiti</span> <span className="text-gray-800 italic">{lastLog.kualiti}</span></div>
                                                     </div>
-                                                ) : <p className="text-gray-400 italic text-sm py-2 text-center">Tiada rekod bacaan.</p>}
-                                                <button onClick={() => generateIndividualPDF(curStudent)} className="mt-6 w-full bg-white border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-50 hover:border-gray-400 transition-all flex items-center justify-center shadow-sm">
+                                                ) : <p className="text-gray-400 italic text-sm py-2 text-center">Tiada rekod bacaan sebelum ini.</p>}
+                                                <button onClick={() => generateIndividualPDF(curStudent)} className="mt-6 w-full bg-white border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-all flex items-center justify-center shadow-sm">
                                                     <Download className="w-4 h-4 mr-2"/> Laporan Individu
                                                 </button>
                                             </div>
@@ -466,18 +498,18 @@
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                                 <div>
                                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tahap Bacaan</label>
-                                                    <select value={currentRecord.tahap} onChange={(e) => setCurrentRecord({...currentRecord, tahap: e.target.value})} className="w-full border-gray-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-gray-50">
+                                                    <select value={currentRecord.tahap} onChange={(e) => setCurrentRecord({...currentRecord, tahap: e.target.value})} className="w-full border-gray-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-gray-500 bg-gray-50">
                                                         <optgroup label="Iqra">{[1,2,3,4,5,6].map(i => <option key={i} value={`Iqra ${i}`}>Iqra {i}</option>)}</optgroup>
                                                         <option value="Al-Quran">Al-Quran</option><option value="Khatam">Khatam</option>
                                                     </select>
                                                 </div>
                                                 <div>
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">{currentRecord.tahap === 'Al-Quran' ? 'Halaman' : 'Lokasi'}</label>
-                                                    <input type={currentRecord.tahap === 'Al-Quran' ? "number" : "text"} value={currentRecord.halaman} onChange={handlePageChange} className="w-full border-gray-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-gray-50" required placeholder="Masukkan lokasi..."/>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">{currentRecord.tahap === 'Al-Quran' ? 'Halaman' : 'Halaman / Muka Surat'}</label>
+                                                    <input type={currentRecord.tahap === 'Al-Quran' ? "number" : "text"} value={currentRecord.halaman} onChange={handlePageChange} className="w-full border-gray-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-gray-500 bg-gray-50" required placeholder="Masukkan muka surat..."/>
                                                     {currentRecord.tahap === 'Al-Quran' && currentRecord.juzuk && <p className="text-xs text-gray-500 mt-1 italic">Automatik: Juzuk {currentRecord.juzuk}</p>}
                                                 </div>
-                                                <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tarikh</label><input type="date" value={currentRecord.tarikh} onChange={(e) => setCurrentRecord({...currentRecord, tarikh: e.target.value})} className="w-full border-gray-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-gray-50"/></div>
-                                                <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Masa</label><input type="time" value={currentRecord.masa} onChange={(e) => setCurrentRecord({...currentRecord, masa: e.target.value})} className="w-full border-gray-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-gray-50"/></div>
+                                                <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tarikh</label><input type="date" value={currentRecord.tarikh} onChange={(e) => setCurrentRecord({...currentRecord, tarikh: e.target.value})} className="w-full border-gray-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-gray-500 bg-gray-50"/></div>
+                                                <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Masa</label><input type="time" value={currentRecord.masa} onChange={(e) => setCurrentRecord({...currentRecord, masa: e.target.value})} className="w-full border-gray-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-gray-500 bg-gray-50"/></div>
                                                 <div className="md:col-span-2">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Kualiti Bacaan</label>
                                                     <div className="flex space-x-4">
@@ -489,7 +521,7 @@
                                                         ))}
                                                     </div>
                                                 </div>
-                                                <div className="md:col-span-2"><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Catatan Guru</label><textarea rows="2" value={currentRecord.catatan} onChange={(e) => setCurrentRecord({...currentRecord, catatan: e.target.value})} className="w-full border-gray-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-gray-50" placeholder="Contoh: Perlu perbaiki makhraj..."></textarea></div>
+                                                <div className="md:col-span-2"><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Catatan Guru</label><textarea rows="2" value={currentRecord.catatan} onChange={(e) => setCurrentRecord({...currentRecord, catatan: e.target.value})} className="w-full border-gray-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-gray-500 bg-gray-50" placeholder="Contoh: Perlu perbaiki makhraj..."></textarea></div>
                                             </div>
                                             <div className="flex justify-end pt-4 border-t border-gray-100">
                                                 <button type="submit" disabled={!selectedStudentId} className="bg-gray-900 text-white px-8 py-3 rounded-lg font-medium shadow hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center">
@@ -513,8 +545,11 @@
                                         </h3>
                                         <div className="flex-1 flex flex-col justify-between gap-5">
                                             <div className="space-y-4">
-                                                <input type="text" placeholder="Nama Penuh Murid" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="w-full border-gray-300 p-3 rounded-lg border bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none transition-all"/>
-                                                <input type="text" placeholder="Kelas (Contoh: 1 Ibnu Sina)" value={newStudentClass} onChange={(e) => setNewStudentClass(e.target.value)} className="w-full border-gray-300 p-3 rounded-lg border bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none transition-all"/>
+                                                <input type="text" placeholder="Nama Penuh Murid" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="w-full border-gray-300 p-3 rounded-lg border bg-gray-50 focus:ring-2 focus:ring-gray-500 outline-none transition-all"/>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <input type="text" placeholder="Tahun (Contoh: 1)" value={newStudentYear} onChange={(e) => setNewStudentYear(e.target.value)} className="w-full border-gray-300 p-3 rounded-lg border bg-gray-50 focus:ring-2 focus:ring-gray-500 outline-none transition-all"/>
+                                                    <input type="text" placeholder="Kelas (Contoh: Ibnu Sina)" value={newStudentClass} onChange={(e) => setNewStudentClass(e.target.value)} className="w-full border-gray-300 p-3 rounded-lg border bg-gray-50 focus:ring-2 focus:ring-gray-500 outline-none transition-all"/>
+                                                </div>
                                             </div>
                                             <button onClick={handleAddStudent} className="w-full bg-gray-800 text-white py-3 rounded-lg hover:bg-gray-700 font-medium shadow-sm transition-colors mt-4">Daftar Murid</button>
                                         </div>
@@ -529,7 +564,7 @@
                                             <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-6 text-center mb-4 flex-1 flex flex-col justify-center items-center">
                                                 <FileText className="w-10 h-10 text-gray-400 mx-auto mb-3"/>
                                                 <p className="text-sm text-gray-600 mb-1 font-medium">Muat naik fail .csv</p>
-                                                <p className="text-xs text-gray-500">Format: <b>Nama Murid, Kelas</b></p>
+                                                <p className="text-xs text-gray-500">Format: <b>Nama, Tahun, Kelas</b></p>
                                             </div>
                                             <div className="relative flex justify-center">
                                                 <label className="block w-full">
@@ -538,13 +573,7 @@
                                                         type="file" 
                                                         accept=".csv" 
                                                         onChange={handleCSVUpload}
-                                                        className="block w-full text-sm text-slate-500
-                                                        file:mr-4 file:py-2.5 file:px-4
-                                                        file:rounded-lg file:border-0
-                                                        file:text-sm file:font-semibold
-                                                        file:bg-gray-800 file:text-white
-                                                        hover:file:bg-gray-700
-                                                        cursor-pointer border border-gray-200 rounded-lg bg-white shadow-sm"
+                                                        className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-800 file:text-white hover:file:bg-gray-700 cursor-pointer border border-gray-200 rounded-lg bg-white shadow-sm"
                                                     />
                                                 </label>
                                             </div>
@@ -555,26 +584,33 @@
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mt-6">
                                     <div className="p-5 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
                                         <h3 className="font-bold text-gray-700">Direktori Murid</h3>
-                                        <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="border-gray-300 rounded-md border p-1.5 text-sm bg-white focus:ring-1 focus:ring-gray-500">
-                                            <option value="">Semua Kelas</option>{classList.map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
+                                        <div className="flex space-x-2">
+                                            <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="border-gray-300 rounded-md border p-1.5 text-sm bg-white focus:ring-1 focus:ring-gray-500">
+                                                <option value="">Semua Tahun</option>{yearList.map(y => <option key={y} value={y}>{y}</option>)}
+                                            </select>
+                                            <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="border-gray-300 rounded-md border p-1.5 text-sm bg-white focus:ring-1 focus:ring-gray-500">
+                                                <option value="">Semua Kelas</option>{classList.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
                                     </div>
                                     <div className="overflow-x-auto">
                                         <table className="min-w-full divide-y divide-gray-200">
                                             <thead className="bg-gray-100">
                                                 <tr>
                                                     <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nama</th>
+                                                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Tahun</th>
                                                     <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Kelas</th>
                                                     <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Tahap</th>
                                                     <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Tindakan</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
-                                                {(selectedClass ? filteredStudents : students).map((student) => { 
+                                                {filteredStudents.map((student) => { 
                                                     const lastLog = getLatestLog(student.id); 
                                                     return (
                                                         <tr key={student.id} className="hover:bg-gray-50 transition-colors">
                                                             <td className="px-6 py-4 font-medium text-gray-900">{student.name}</td>
+                                                            <td className="px-6 py-4 text-gray-500">{student.tahun}</td>
                                                             <td className="px-6 py-4 text-gray-500">{student.kelas}</td>
                                                             <td className="px-6 py-4">
                                                                 {lastLog ? <span className="px-2.5 py-1 text-xs font-semibold rounded-md bg-gray-100 text-gray-700 border border-gray-200">{lastLog.tahap} {lastLog.tahap === 'Al-Quran' ? `(J${lastLog.juzuk})` : ''}</span> : <span className="text-gray-400 text-xs">-</span>}
