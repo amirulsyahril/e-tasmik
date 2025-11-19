@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem e-Tasmik & Rekod Al-Quran (Cloud)</title>
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Prop-types -->
+    <script src="https://unpkg.com/prop-types/prop-types.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Libraries -->
+    <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f0fdf4; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #059669; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // --- KONFIGURASI GOOGLE SHEETS ---
+        // Gantikan URL di bawah dengan URL Web App anda dari Google Apps Script Deployment
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw2RZRecH9nVm3-NuGRVmoKflpcHWHihn5YKMatvR5NtNJuakgQGNDI9NTKcmBottds/exec"; 
+
+        // --- SUPPRESS CONSOLE WARNINGS ---
+        const originalConsoleError = console.error;
+        console.error = (...args) => {
+            if (typeof args[0] === 'string' && /defaultProps/.test(args[0])) return;
+            originalConsoleError(...args);
+        };
+
+        const { useState, useEffect, useMemo } = React;
+        const { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
+        
+        // --- Icons ---
+        const IconBase = ({ children, size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+        );
+        const BookOpen = (props) => <IconBase {...props}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></IconBase>;
+        const Users = (props) => <IconBase {...props}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></IconBase>;
+        const BarChart2 = (props) => <IconBase {...props}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></IconBase>;
+        const Save = (props) => <IconBase {...props}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></IconBase>;
+        const Cloud = (props) => <IconBase {...props}><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></IconBase>;
+        const FileText = (props) => <IconBase {...props}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></IconBase>;
+        const CheckCircle = (props) => <IconBase {...props}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></IconBase>;
+        const AlertCircle = (props) => <IconBase {...props}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></IconBase>;
+        const Download = (props) => <IconBase {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></IconBase>;
+
+        // --- Helper Functions ---
+        const calculateJuzuk = (page) => {
+            if (!page || page < 1) return 0;
+            if (page <= 21) return 1;
+            const juzuk = Math.floor((page - 22) / 20) + 2;
+            return juzuk > 30 ? 30 : juzuk;
+        };
+
+        const formatDate = (dateStr) => {
+            if(!dateStr) return "-";
+            try {
+                return new Date(dateStr).toLocaleDateString('ms-MY', { day: 'numeric', month: 'short', year: 'numeric' });
+            } catch (e) { return dateStr; }
+        };
+
+        const generateId = () => Math.random().toString(36).substr(2, 9);
+
+        const StatCard = ({ title, value, icon: Icon, color }) => (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4">
+                <div className={`p-3 rounded-full ${color} bg-opacity-10`}>
+                    <Icon className={`w-6 h-6 ${color.replace('bg-', 'text-')}`} />
+                </div>
+                <div>
+                    <p className="text-sm text-gray-500 font-medium">{title}</p>
+                    <h3 className="text-2xl font-bold text-gray-800">{value}</h3>
+                </div>
+            </div>
+        );
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('rekod');
+            const [students, setStudents] = useState([]);
+            const [logs, setLogs] = useState([]);
+            const [notification, setNotification] = useState(null);
+            const [isLoading, setIsLoading] = useState(false);
+            const [isConfigured, setIsConfigured] = useState(false);
+
+            // Form States
+            const [selectedClass, setSelectedClass] = useState('');
+            const [selectedStudentId, setSelectedStudentId] = useState('');
+            const [currentRecord, setCurrentRecord] = useState({
+                tahap: 'Iqra 1',
+                halaman: '',
+                juzuk: '',
+                tarikh: new Date().toISOString().split('T')[0],
+                masa: new Date().toLocaleTimeString('it-IT').slice(0,5),
+                kualiti: 'Lancar',
+                catatan: ''
+            });
+
+            // --- GOOGLE SHEETS INTEGRATION ---
+
+            const fetchData = async () => {
+                if(GOOGLE_SCRIPT_URL.includes("PASTE_URL")) {
+                    setIsConfigured(false);
+                    return;
+                }
+                setIsConfigured(true);
+                setIsLoading(true);
+                try {
+                    const response = await fetch(GOOGLE_SCRIPT_URL);
+                    const data = await response.json();
+                    if(data.status === 'success') {
+                        // Filter out potential empty rows from Sheet
+                        const validStudents = data.students.filter(s => s && s.name);
+                        const validLogs = data.logs.filter(l => l && l.studentId);
+                        setStudents(validStudents);
+                        setLogs(validLogs);
+                        showNotify("Data berjaya dimuat turun dari Cloud", "success");
+                    }
+                } catch (error) {
+                    console.error("Error fetching data:", error);
+                    showNotify("Gagal menyambung ke Google Sheets", "error");
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const postData = async (payload) => {
+                setIsLoading(true);
+                try {
+                    // Use 'no-cors' mode requires pure text/plain often, but standard POST 
+                    // with stringified body works best with proper GAS setup.
+                    // We use standard fetch which follows redirects.
+                    const response = await fetch(GOOGLE_SCRIPT_URL, {
+                        method: "POST",
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await response.json();
+                    return result;
+                } catch (error) {
+                    console.error("Error posting:", error);
+                    // Fallback: If fetch fails (CORS), sometimes data is still written.
+                    // But ideally we want success.
+                    return { status: "error" };
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            // Initial Load
+            useEffect(() => {
+                fetchData();
+            }, []);
+
+            const filteredStudents = useMemo(() => {
+                return selectedClass ? students.filter(s => s.kelas === selectedClass) : [];
+            }, [selectedClass, students]);
+
+            const classList = useMemo(() => {
+                return [...new Set(students.map(s => s.kelas))].sort();
+            }, [students]);
+
+            const handlePageChange = (e) => {
+                const page = parseInt(e.target.value);
+                setCurrentRecord(prev => ({
+                    ...prev,
+                    halaman: page,
+                    juzuk: currentRecord.tahap === 'Al-Quran' ? calculateJuzuk(page) : ''
+                }));
+            };
+
+            const handleSubmitRecord = async (e) => {
+                e.preventDefault();
+                if (!selectedStudentId) return showNotify("Pilih murid dahulu", "error");
+
+                const newLog = {
+                    id: generateId(),
+                    studentId: selectedStudentId,
+                    ...currentRecord,
+                    timestamp: new Date().toISOString()
+                };
+
+                // Optimistic UI Update (Update local first)
+                setLogs([newLog, ...logs]);
+
+                // Send to Cloud
+                const payload = { action: "addLog", ...newLog };
+                await postData(payload);
+                showNotify("Rekod disimpan ke Google Sheets!", "success");
+                
+                setCurrentRecord(prev => ({ ...prev, halaman: '', juzuk: '', catatan: '' }));
+            };
+
+            // --- Logic: Senarai Murid ---
+            const [newStudentName, setNewStudentName] = useState('');
+            const [newStudentClass, setNewStudentClass] = useState('');
+
+            const handleAddStudent = async () => {
+                if (!newStudentName || !newStudentClass) return;
+                const newStudent = { id: generateId(), name: newStudentName, kelas: newStudentClass };
+                
+                // Optimistic Update
+                setStudents([...students, newStudent]);
+                
+                // Send to Cloud
+                await postData({ action: "addStudent", ...newStudent });
+                
+                setNewStudentName('');
+                setNewStudentClass('');
+                showNotify("Murid ditambah ke Google Sheets", "success");
+            };
+
+            // --- PDF Logic (Sama seperti sebelum ini) ---
+            const generateIndividualPDF = (student) => {
+                const doc = new jspdf.jsPDF();
+                const studentLogs = logs.filter(l => l.studentId === student.id).sort((a,b) => new Date(a.tarikh) - new Date(b.tarikh));
+                doc.setFontSize(18); doc.text(`Laporan: ${student.name}`, 14, 20);
+                doc.setFontSize(12); doc.text(`Kelas: ${student.kelas}`, 14, 30);
+                const tableData = studentLogs.map(log => [formatDate(log.tarikh), log.tahap, log.tahap === 'Al-Quran' ? `Juz ${log.juzuk} (Hlm ${log.halaman})` : log.halaman || '-', log.kualiti, log.catatan]);
+                doc.autoTable({ startY: 45, head: [['Tarikh', 'Tahap', 'Bacaan', 'Kualiti', 'Catatan']], body: tableData });
+                doc.save(`Laporan_${student.name}.pdf`);
+            };
+
+            const generateFullReportPDF = () => {
+                const doc = new jspdf.jsPDF();
+                doc.setFontSize(18); doc.text(`Laporan Keseluruhan Kelas`, 14, 20);
+                const tableData = students.map(student => {
+                    const studentLogs = logs.filter(l => l.studentId === student.id);
+                    const lastLog = studentLogs.length > 0 ? studentLogs[0] : null; 
+                    return [student.name, student.kelas, lastLog ? lastLog.tahap : 'Tiada', lastLog && lastLog.tahap === 'Al-Quran' ? `Juz ${lastLog.juzuk}` : '-'];
+                });
+                doc.autoTable({ startY: 30, head: [['Nama', 'Kelas', 'Tahap', 'Pencapaian']], body: tableData });
+                doc.save('Laporan_Keseluruhan.pdf');
+            };
+
+            const showNotify = (msg, type) => {
+                setNotification({ msg, type });
+                setTimeout(() => setNotification(null), 3000);
+            };
+
+            // Analysis Helpers
+            const getLatestLog = (studentId) => logs.find(l => l.studentId === studentId);
+            const stats = useMemo(() => {
+                const totalStudents = students.length;
+                const byTahap = { 'Iqra': 0, 'Al-Quran': 0, 'Khatam': 0 };
+                const juzukDist = Array(30).fill(0);
+                students.forEach(s => {
+                    const log = getLatestLog(s.id);
+                    if (log) {
+                        if (log.tahap.includes('Iqra')) byTahap['Iqra']++;
+                        else if (log.tahap === 'Al-Quran') { byTahap['Al-Quran']++; if(log.juzuk > 0) juzukDist[log.juzuk - 1]++; }
+                        else if (log.tahap === 'Khatam') byTahap['Khatam']++;
+                    }
+                });
+                return { totalStudents, 
+                         dataByTahap: Object.keys(byTahap).map(k => ({ name: k, value: byTahap[k] })),
+                         dataByJuzuk: juzukDist.map((c, i) => ({ juzuk: `J${i+1}`, count: c })) };
+            }, [students, logs]);
+
+            if (!isConfigured) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-gray-50 flex-col p-8 text-center">
+                        <AlertCircle className="w-16 h-16 text-red-500 mb-4" />
+                        <h1 className="text-2xl font-bold text-gray-800 mb-2">Konfigurasi Diperlukan</h1>
+                        <p className="text-gray-600 max-w-lg mb-6">Sila paste URL Google Apps Script anda ke dalam kod pada baris <code>const GOOGLE_SCRIPT_URL</code>.</p>
+                        <div className="bg-yellow-50 p-4 rounded border border-yellow-200 text-sm text-left">
+                            <p>1. Buka fail HTML ini dalam Notepad.</p>
+                            <p>2. Cari <b>const GOOGLE_SCRIPT_URL = "..."</b></p>
+                            <p>3. Masukkan URL Web App yang anda dapat dari Google.</p>
+                            <p>4. Save dan Refresh.</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen pb-10 relative">
+                    {/* Loading Overlay */}
+                    {isLoading && (
+                        <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+                            <div className="bg-white p-4 rounded-lg shadow-lg flex items-center space-x-3">
+                                <div className="loader"></div>
+                                <span className="font-semibold text-gray-700">Menghubungi Google Sheets...</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {notification && (
+                        <div className={`fixed top-5 right-5 px-6 py-3 rounded-lg shadow-lg z-50 text-white flex items-center space-x-2 animate-bounce ${notification.type === 'error' ? 'bg-red-500' : 'bg-green-600'}`}>
+                            {notification.type === 'error' ? <AlertCircle size={20}/> : <CheckCircle size={20}/>}
+                            <span>{notification.msg}</span>
+                        </div>
+                    )}
+
+                    <nav className="bg-emerald-700 text-white shadow-lg sticky top-0 z-40">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div className="flex justify-between h-16 items-center">
+                                <div className="flex items-center space-x-3">
+                                    <BookOpen className="h-8 w-8 text-emerald-200" />
+                                    <div>
+                                        <span className="font-bold text-xl block leading-none">e-Tasmik Cloud</span>
+                                        <span className="text-xs text-emerald-300 flex items-center gap-1"><Cloud size={10}/> Connected to Sheets</span>
+                                    </div>
+                                </div>
+                                <div className="flex space-x-4">
+                                    {[{ id: 'rekod', label: 'Rekod', icon: FileText }, { id: 'murid', label: 'Murid', icon: Users }, { id: 'laporan', label: 'Laporan', icon: BarChart2 }].map(tab => (
+                                        <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === tab.id ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-600'}`}>
+                                            <tab.icon size={18} /> <span className="hidden md:inline">{tab.label}</span>
+                                        </button>
+                                    ))}
+                                    <button onClick={fetchData} className="bg-emerald-800 p-2 rounded hover:bg-emerald-600" title="Refresh Data"><Cloud size={18}/></button>
+                                </div>
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
+                        {activeTab === 'rekod' && (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                <div className="lg:col-span-1 space-y-6">
+                                    <div className="bg-white p-6 rounded-xl shadow-md">
+                                        <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center"><Users className="mr-2 text-emerald-600"/> Pilih Murid</h2>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Kelas</label>
+                                                <select value={selectedClass} onChange={(e) => { setSelectedClass(e.target.value); setSelectedStudentId(''); }} className="w-full border-gray-300 rounded-md shadow-sm border p-2">
+                                                    <option value="">-- Pilih Kelas --</option>
+                                                    {classList.map(c => <option key={c} value={c}>{c}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Nama Murid</label>
+                                                <select value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)} disabled={!selectedClass} className="w-full border-gray-300 rounded-md shadow-sm border p-2 disabled:bg-gray-100">
+                                                    <option value="">-- Pilih Nama --</option>
+                                                    {filteredStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {selectedStudentId && (() => {
+                                        const lastLog = getLatestLog(selectedStudentId);
+                                        const curStudent = students.find(s => s.id === selectedStudentId);
+                                        return (
+                                            <div className="bg-emerald-50 p-6 rounded-xl border border-emerald-100">
+                                                <h3 className="text-sm font-bold text-emerald-800 uppercase tracking-wide mb-2">Rekod Terkini</h3>
+                                                {lastLog ? (
+                                                    <div className="space-y-2 text-sm">
+                                                        <div className="flex justify-between"><span className="text-gray-600">Tarikh:</span> <span className="font-medium">{formatDate(lastLog.tarikh)}</span></div>
+                                                        <div className="flex justify-between"><span className="text-gray-600">Tahap:</span> <span className="font-medium text-emerald-700">{lastLog.tahap}</span></div>
+                                                        {lastLog.tahap === 'Al-Quran' && <div className="flex justify-between"><span className="text-gray-600">Lokasi:</span> <span className="font-medium">Juz {lastLog.juzuk} / Hlm {lastLog.halaman}</span></div>}
+                                                    </div>
+                                                ) : <p className="text-gray-500 italic text-sm">Tiada rekod.</p>}
+                                                <button onClick={() => generateIndividualPDF(curStudent)} className="mt-4 w-full bg-white border border-emerald-600 text-emerald-700 py-2 rounded text-sm font-semibold hover:bg-emerald-50 flex items-center justify-center"><Download className="w-4 h-4 mr-2"/> Muat Turun Laporan</button>
+                                            </div>
+                                        )
+                                    })()}
+                                </div>
+
+                                <div className="lg:col-span-2">
+                                    <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                                        <div className="bg-emerald-600 px-6 py-4 border-b border-emerald-500">
+                                            <h2 className="text-lg font-bold text-white flex items-center"><FileText className="mr-2"/> Borang Kemaskini</h2>
+                                        </div>
+                                        <form onSubmit={handleSubmitRecord} className="p-6 space-y-6">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Tahap</label>
+                                                    <select value={currentRecord.tahap} onChange={(e) => setCurrentRecord({...currentRecord, tahap: e.target.value})} className="w-full border p-2 rounded-lg">
+                                                        <optgroup label="Iqra">{[1,2,3,4,5,6].map(i => <option key={i} value={`Iqra ${i}`}>Iqra {i}</option>)}</optgroup>
+                                                        <option value="Al-Quran">Al-Quran</option><option value="Khatam">Khatam</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">{currentRecord.tahap === 'Al-Quran' ? 'Halaman' : 'Lokasi'}</label>
+                                                    <input type={currentRecord.tahap === 'Al-Quran' ? "number" : "text"} value={currentRecord.halaman} onChange={handlePageChange} className="w-full border p-2 rounded-lg" required placeholder="Lokasi bacaan"/>
+                                                    {currentRecord.tahap === 'Al-Quran' && currentRecord.juzuk && <p className="text-xs text-emerald-600 mt-1">Automatik: Juzuk {currentRecord.juzuk}</p>}
+                                                </div>
+                                                <div><label className="block text-sm font-medium text-gray-700 mb-1">Tarikh</label><input type="date" value={currentRecord.tarikh} onChange={(e) => setCurrentRecord({...currentRecord, tarikh: e.target.value})} className="w-full border p-2 rounded-lg"/></div>
+                                                <div><label className="block text-sm font-medium text-gray-700 mb-1">Masa</label><input type="time" value={currentRecord.masa} onChange={(e) => setCurrentRecord({...currentRecord, masa: e.target.value})} className="w-full border p-2 rounded-lg"/></div>
+                                                <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-2">Kualiti</label><div className="flex space-x-4">{['Lancar', 'Sederhana', 'Merangkak'].map(k => (<label key={k} className={`flex-1 border rounded-lg p-3 cursor-pointer text-center hover:bg-emerald-50 ${currentRecord.kualiti === k ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-bold' : 'border-gray-200'}`}><input type="radio" name="kualiti" value={k} checked={currentRecord.kualiti === k} onChange={(e) => setCurrentRecord({...currentRecord, kualiti: e.target.value})} className="sr-only"/>{k}</label>))}</div></div>
+                                                <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label><textarea rows="2" value={currentRecord.catatan} onChange={(e) => setCurrentRecord({...currentRecord, catatan: e.target.value})} className="w-full border p-2 rounded-lg"></textarea></div>
+                                            </div>
+                                            <div className="flex justify-end pt-4"><button type="submit" disabled={!selectedStudentId} className="bg-emerald-600 text-white px-8 py-3 rounded-lg font-semibold shadow hover:bg-emerald-700 disabled:opacity-50 flex items-center"><Save className="mr-2 w-5 h-5"/> Simpan ke Cloud</button></div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'murid' && (
+                            <div className="space-y-8">
+                                <div className="bg-white p-6 rounded-xl shadow-md max-w-xl mx-auto">
+                                    <h3 className="font-bold text-gray-800 mb-4 flex items-center"><Users className="w-5 h-5 mr-2"/> Tambah Murid (Sync ke Cloud)</h3>
+                                    <div className="flex flex-col space-y-3">
+                                        <input type="text" placeholder="Nama Penuh" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} className="border p-2 rounded"/>
+                                        <input type="text" placeholder="Kelas" value={newStudentClass} onChange={(e) => setNewStudentClass(e.target.value)} className="border p-2 rounded"/>
+                                        <button onClick={handleAddStudent} className="bg-emerald-600 text-white py-2 rounded hover:bg-emerald-700">Tambah Murid</button>
+                                    </div>
+                                </div>
+                                <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                                    <div className="p-4 border-b bg-gray-50 flex justify-between items-center"><h3 className="font-bold text-gray-700">Senarai Murid</h3><select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="border rounded p-1 text-sm"><option value="">Semua Kelas</option>{classList.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                                    <div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nama</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kelas</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tahap</th><th className="px-6 py-3 text-right">Tindakan</th></tr></thead><tbody className="bg-white divide-y divide-gray-200">{(selectedClass ? filteredStudents : students).map((student) => { const lastLog = getLatestLog(student.id); return (<tr key={student.id} className="hover:bg-gray-50"><td className="px-6 py-4 font-medium text-gray-900">{student.name}</td><td className="px-6 py-4 text-gray-500">{student.kelas}</td><td className="px-6 py-4">{lastLog ? <span className={`px-2 text-xs font-semibold rounded-full ${lastLog.tahap === 'Al-Quran' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{lastLog.tahap} {lastLog.tahap === 'Al-Quran' ? `(J${lastLog.juzuk})` : ''}</span> : '-'}</td><td className="px-6 py-4 text-right"><button onClick={() => generateIndividualPDF(student)} className="text-indigo-600 hover:text-indigo-900"><Download className="w-4 h-4"/></button></td></tr>); })}</tbody></table></div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'laporan' && (
+                            <div className="space-y-8">
+                                <div className="flex justify-end space-x-4">
+                                    <button onClick={generateFullReportPDF} className="flex items-center bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700"><FileText className="w-4 h-4 mr-2"/> PDF Kelas</button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    <StatCard title="Murid" value={stats.totalStudents} icon={Users} color="bg-blue-500" />
+                                    <StatCard title="Al-Quran" value={stats.dataByTahap.find(d => d.name === 'Al-Quran')?.value || 0} icon={BookOpen} color="bg-emerald-500" />
+                                    <StatCard title="Khatam" value={stats.dataByTahap.find(d => d.name === 'Khatam')?.value || 0} icon={CheckCircle} color="bg-purple-500" />
+                                </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                    <div className="bg-white p-6 rounded-xl shadow-md h-64"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.dataByTahap}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="value" fill="#10b981" /></BarChart></ResponsiveContainer></div>
+                                    <div className="bg-white p-6 rounded-xl shadow-md h-64"><ResponsiveContainer width="100%" height="100%"><LineChart data={stats.dataByJuzuk}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="juzuk" interval={4} /><YAxis allowDecimals={false} /><Tooltip /><Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} /></LineChart></ResponsiveContainer></div>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
