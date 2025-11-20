@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistem e-Tasmik & Rekod Al-Quran (Cloud)</title>
+    <title>Sistem e-Tasmik & Rekod Al-Quran (Cloud + AI)</title>
     
     <!-- React & ReactDOM -->
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -23,17 +23,20 @@
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; } /* Slate-100 background (Fresher) */
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; } 
         .loader { border: 4px solid #e2e8f0; border-top: 4px solid #475569; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .ai-gradient { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); }
+        .ai-text { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        // --- KONFIGURASI GOOGLE SHEETS ---
+        // --- KONFIGURASI ---
         const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwSwGhRotEtwmwMX8LVDLfdY5a034ZcGnRXQEJTREYm1SPIJ7oSj-vjsokXCGXPrIVF/exec"; 
+        const apiKey = ""; // API Key akan disediakan oleh sistem semasa runtime
 
         // --- SUPPRESS CONSOLE WARNINGS ---
         const originalConsoleError = console.error;
@@ -43,7 +46,7 @@
         };
 
         const { useState, useEffect, useMemo } = React;
-        const { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
+        const { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } = Recharts;
         
         // --- Icons ---
         const IconBase = ({ children, size = 24, className = "" }) => (
@@ -62,6 +65,10 @@
         const Trash2 = (props) => <IconBase {...props}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></IconBase>;
         const Filter = (props) => <IconBase {...props}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></IconBase>;
         const Printer = (props) => <IconBase {...props}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></IconBase>;
+        const Edit = (props) => <IconBase {...props}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></IconBase>;
+        const ThumbsUp = (props) => <IconBase {...props}><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></IconBase>;
+        const ThumbsDown = (props) => <IconBase {...props}><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></IconBase>;
+        const Sparkles = (props) => <IconBase {...props}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" /></IconBase>;
 
         // --- Helper Functions ---
         const calculateJuzuk = (page) => {
@@ -80,7 +87,7 @@
 
         const generateId = () => Math.random().toString(36).substr(2, 9);
 
-        const StatCard = ({ title, value, icon: Icon, color }) => (
+        const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center space-x-4">
                 <div className={`p-3 rounded-full ${color} bg-opacity-10`}>
                     <Icon className={`w-6 h-6 ${color.replace('bg-', 'text-')}`} />
@@ -88,6 +95,7 @@
                 <div>
                     <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">{title}</p>
                     <h3 className="text-2xl font-bold text-slate-700">{value}</h3>
+                    {subtitle && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
                 </div>
             </div>
         );
@@ -99,6 +107,11 @@
             const [notification, setNotification] = useState(null);
             const [isLoading, setIsLoading] = useState(false);
             const [isConfigured, setIsConfigured] = useState(false);
+
+            // AI States
+            const [aiCommentLoading, setAiCommentLoading] = useState(false);
+            const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
+            const [aiAnalysisResult, setAiAnalysisResult] = useState(null);
 
             // Form States
             const [selectedYear, setSelectedYear] = useState('');
@@ -114,10 +127,72 @@
                 catatan: ''
             });
 
+            // Edit State
+            const [isEditing, setIsEditing] = useState(false);
+            const [editingStudentId, setEditingStudentId] = useState(null);
+            const [newStudentName, setNewStudentName] = useState('');
+            const [newStudentYear, setNewStudentYear] = useState('');
+            const [newStudentClass, setNewStudentClass] = useState('');
+
             // Report Filter States
             const [reportFilterYear, setReportFilterYear] = useState('');
             const [reportFilterClass, setReportFilterClass] = useState('');
             const [reportFilterLevel, setReportFilterLevel] = useState('');
+
+            // --- GEMINI API CALL ---
+            const callGemini = async (prompt) => {
+                try {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }]
+                        })
+                    });
+                    const data = await response.json();
+                    return data.candidates?.[0]?.content?.parts?.[0]?.text || "Maaf, tiada respons AI.";
+                } catch (error) {
+                    console.error("Gemini Error:", error);
+                    return null;
+                }
+            };
+
+            // --- AI Feature 1: Comment Generator ---
+            const handleGenerateComment = async () => {
+                if (!currentRecord.tahap || !currentRecord.kualiti) {
+                    showNotify("Sila pilih Tahap dan Kualiti dahulu.", "error");
+                    return;
+                }
+                setAiCommentLoading(true);
+                const prompt = `Bertindak sebagai guru Al-Quran yang penyayang dan motivasi. Berikan satu ulasan pendek (maksimum 15 patah perkataan) dalam Bahasa Melayu untuk murid yang membaca ${currentRecord.tahap} pada muka surat/halaman ${currentRecord.halaman} dengan kualiti bacaan "${currentRecord.kualiti}". Berikan nasihat membina. Jangan guna tanda petik.`;
+                
+                const result = await callGemini(prompt);
+                if (result) {
+                    setCurrentRecord(prev => ({ ...prev, catatan: result.trim() }));
+                    showNotify("Ulasan AI berjaya dijana!", "success");
+                } else {
+                    showNotify("Gagal menghubungi AI.", "error");
+                }
+                setAiCommentLoading(false);
+            };
+
+            // --- AI Feature 2: Student Analysis ---
+            const handleAnalyzeStudent = async (student, history) => {
+                setAiAnalysisLoading(true);
+                setAiAnalysisResult(null); // Clear prev result
+                
+                // Prepare succinct history string
+                const historyStr = history.slice(0, 5).map(h => `${formatDate(h.tarikh)}: ${h.tahap} (Kualiti: ${h.kualiti})`).join("\n");
+                const prompt = `Analisis prestasi murid bernama ${student.name} (Tahun ${student.tahun}, Kelas ${student.kelas}) berdasarkan 5 rekod terkini:\n${historyStr}\n\nBerikan 3 poin ringkas dalam Bahasa Melayu: 1. Kekuatan, 2. Kelemahan/Fokus, 3. Kata Semangat. Format output: HTML list ringkas (<ul><li>...</li></ul>).`;
+
+                const result = await callGemini(prompt);
+                if (result) {
+                    setAiAnalysisResult(result);
+                } else {
+                    showNotify("Gagal membuat analisis AI.", "error");
+                }
+                setAiAnalysisLoading(false);
+            };
 
             // --- GOOGLE SHEETS INTEGRATION ---
             const cleanUrl = (url) => url ? url.trim() : "";
@@ -144,7 +219,14 @@
                             }));
                         
                         const uniqueStudents = Array.from(new Map(validStudents.map(s => [s.id, s])).values());
+                        
                         const validLogs = data.logs.filter(l => l && l.studentId);
+                        validLogs.sort((a, b) => {
+                            const dateA = new Date(a.timestamp || a.tarikh);
+                            const dateB = new Date(b.timestamp || b.tarikh);
+                            return dateB - dateA; 
+                        });
+
                         setStudents(uniqueStudents);
                         setLogs(validLogs);
                         showNotify("Data berjaya dimuat turun", "success");
@@ -194,7 +276,6 @@
                 return [...new Set(filtered.map(s => s.kelas))].filter(Boolean).sort();
             }, [students, reportFilterYear]);
 
-
             const filteredStudents = useMemo(() => {
                 return students.filter(s => 
                     (!selectedYear || s.tahun === selectedYear) && 
@@ -231,32 +312,54 @@
                 showNotify("Rekod disimpan!", "success");
                 
                 setCurrentRecord(prev => ({ ...prev, halaman: '', juzuk: '', catatan: '' }));
+                setAiAnalysisResult(null); // Clear analysis on new submission
             };
 
-            const [newStudentName, setNewStudentName] = useState('');
-            const [newStudentYear, setNewStudentYear] = useState('');
-            const [newStudentClass, setNewStudentClass] = useState('');
+            // --- Student Management Logic ---
+            const handleEditClick = (student) => {
+                setNewStudentName(student.name);
+                setNewStudentYear(student.tahun);
+                setNewStudentClass(student.kelas);
+                setEditingStudentId(student.id);
+                setIsEditing(true);
+                document.getElementById('studentForm').scrollIntoView({ behavior: 'smooth' });
+            };
 
-            const handleAddStudent = async () => {
+            const cancelEdit = () => {
+                setIsEditing(false);
+                setEditingStudentId(null);
+                setNewStudentName('');
+                setNewStudentYear('');
+                setNewStudentClass('');
+            };
+
+            const handleAddOrUpdateStudent = async () => {
                 if (!newStudentName || !newStudentYear || !newStudentClass) return showNotify("Sila isi semua maklumat", "error");
                 setIsLoading(true);
 
-                const existingStudent = students.find(s => s.name.toLowerCase() === newStudentName.toLowerCase());
-                
-                let studentData;
-                if (existingStudent) {
-                    studentData = { id: existingStudent.id, name: existingStudent.name, tahun: newStudentYear, kelas: newStudentClass };
-                    setStudents(students.map(s => s.id === existingStudent.id ? studentData : s));
-                    showNotify("Data dikemaskini (Rewrite)", "success");
+                if (isEditing && editingStudentId) {
+                    const updatedStudent = { id: editingStudentId, name: newStudentName, tahun: newStudentYear, kelas: newStudentClass };
+                    setStudents(students.map(s => s.id === editingStudentId ? updatedStudent : s));
+                    await postData({ action: "editStudent", ...updatedStudent });
+                    showNotify("Maklumat murid dikemaskini", "success");
+                    cancelEdit();
                 } else {
-                    studentData = { id: generateId(), name: newStudentName, tahun: newStudentYear, kelas: newStudentClass };
-                    setStudents([...students, studentData]);
-                    showNotify("Murid ditambah", "success");
+                    const existingStudent = students.find(s => s.name.toLowerCase() === newStudentName.toLowerCase());
+                    if (existingStudent) {
+                        if(!confirm("Nama murid sudah wujud. Adakah anda mahu mengemaskini data murid ini?")) { setIsLoading(false); return; }
+                        const studentData = { id: existingStudent.id, name: existingStudent.name, tahun: newStudentYear, kelas: newStudentClass };
+                        setStudents(students.map(s => s.id === existingStudent.id ? studentData : s));
+                        await postData({ action: "editStudent", ...studentData });
+                        showNotify("Data murid dikemaskini", "success");
+                    } else {
+                        const studentData = { id: generateId(), name: newStudentName, tahun: newStudentYear, kelas: newStudentClass };
+                        setStudents([...students, studentData]);
+                        await postData({ action: "addStudent", ...studentData });
+                        showNotify("Murid ditambah", "success");
+                    }
+                    setNewStudentName(''); setNewStudentYear(''); setNewStudentClass('');
                 }
-
-                await postData({ action: "addStudent", ...studentData });
                 setIsLoading(false);
-                setNewStudentName(''); setNewStudentYear(''); setNewStudentClass('');
             };
 
             const handleDeleteStudent = async (id) => {
@@ -271,7 +374,6 @@
             const handleCSVUpload = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
-                
                 setIsLoading(true);
                 const reader = new FileReader();
                 reader.onload = async (event) => {
@@ -279,42 +381,27 @@
                     const rows = text.split('\n').slice(1); 
                     const studentsToProcess = [];
                     const studentMap = new Map(students.map(s => [s.name.toLowerCase(), s.id]));
-                    
                     for(let row of rows) {
                         const cols = row.split(',');
                         if(cols.length >= 3) { 
                             const name = cols[0].trim();
                             const tahun = cols[1].trim();
                             const kelas = cols[2].trim();
-                            
                             if(name && tahun && kelas) {
                                 let studentId;
                                 const nameKey = name.toLowerCase();
-                                if (studentMap.has(nameKey)) {
-                                    studentId = studentMap.get(nameKey);
-                                } else {
-                                    studentId = generateId();
-                                    studentMap.set(nameKey, studentId);
-                                }
+                                if (studentMap.has(nameKey)) { studentId = studentMap.get(nameKey); } else { studentId = generateId(); studentMap.set(nameKey, studentId); }
                                 studentsToProcess.push({ id: studentId, name, tahun, kelas });
                             }
                         }
                     }
-
-                    if (studentsToProcess.length === 0) {
-                        setIsLoading(false);
-                        showNotify("Tiada data sah. Format: Nama, Tahun, Kelas", "error");
-                        return;
-                    }
-
+                    if (studentsToProcess.length === 0) { setIsLoading(false); showNotify("Tiada data sah.", "error"); return; }
                     const newStudentState = [...students];
                     for(const p of studentsToProcess) {
                         const idx = newStudentState.findIndex(s => s.id === p.id);
-                        if(idx > -1) newStudentState[idx] = p;
-                        else newStudentState.push(p);
+                        if(idx > -1) newStudentState[idx] = p; else newStudentState.push(p);
                         await postData({ action: "addStudent", ...p });
                     }
-
                     setStudents(newStudentState);
                     setIsLoading(false);
                     showNotify(`${studentsToProcess.length} data diproses!`, "success");
@@ -333,33 +420,22 @@
                 doc.save(`Laporan_${student.name}.pdf`);
             };
 
-            // --- UPDATED REPORT GENERATION LOGIC ---
             const generateFullReportPDF = () => {
                 const doc = new jspdf.jsPDF();
                 doc.setFontSize(18);
-                
-                // Tajuk Dinamik
                 let title = "Laporan Prestasi Al-Quran";
                 if (reportFilterYear) title += ` - Tahun ${reportFilterYear}`;
                 if (reportFilterClass) title += ` (${reportFilterClass})`;
-                if (reportFilterLevel) title += ` [${reportFilterLevel}]`;
-
                 doc.text(title, 14, 20);
                 doc.setFontSize(10);
                 doc.text(`Tarikh Cetakan: ${new Date().toLocaleDateString('ms-MY')}`, 14, 28);
-
-                // 1. Filter Data Mengikut Pilihan
                 let targets = students;
                 if (reportFilterYear) targets = targets.filter(s => s.tahun === reportFilterYear);
                 if (reportFilterClass) targets = targets.filter(s => s.kelas === reportFilterClass);
-
                 const tableData = [];
-                
                 targets.forEach(student => {
-                    const lastLog = logs.find(l => l.studentId === student.id); // Get latest (index 0 in state)
+                    const lastLog = logs.find(l => l.studentId === student.id); 
                     const currentTahap = lastLog ? lastLog.tahap : 'Tiada Rekod';
-                    
-                    // Filter Tahap Logic
                     let include = true;
                     if (reportFilterLevel) {
                          if (reportFilterLevel === 'Iqra' && !currentTahap.startsWith('Iqra')) include = false;
@@ -367,36 +443,16 @@
                          else if (reportFilterLevel === 'Khatam' && currentTahap !== 'Khatam') include = false;
                          if (currentTahap === 'Tiada Rekod') include = false;
                     }
-
                     if (include) {
                         tableData.push([
-                            student.name,
-                            student.tahun,
-                            student.kelas,
-                            currentTahap,
-                            (lastLog && lastLog.tahap === 'Al-Quran') ? `Juzuk ${lastLog.juzuk}` : 
-                            (lastLog && lastLog.tahap.startsWith('Iqra')) ? `Halaman ${lastLog.halaman}` : '-'
+                            student.name, student.tahun, student.kelas, currentTahap,
+                            (lastLog && lastLog.tahap === 'Al-Quran') ? `Juzuk ${lastLog.juzuk}` : (lastLog && lastLog.tahap.startsWith('Iqra')) ? `Halaman ${lastLog.halaman}` : '-'
                         ]);
                     }
                 });
-
-                // Susun ikut Nama
                 tableData.sort((a, b) => a[0].localeCompare(b[0]));
-
-                if (tableData.length === 0) {
-                    showNotify("Tiada rekod ditemui untuk filter ini.", "error");
-                    return;
-                }
-
-                doc.autoTable({
-                    startY: 35,
-                    head: [['Nama Murid', 'Tahun', 'Kelas', 'Tahap Terkini', 'Pencapaian']],
-                    body: tableData,
-                    theme: 'grid',
-                    headStyles: { fillColor: [51, 65, 85] }, // Slate-700
-                    styles: { fontSize: 10 }
-                });
-
+                if (tableData.length === 0) { showNotify("Tiada rekod ditemui.", "error"); return; }
+                doc.autoTable({ startY: 35, head: [['Nama Murid', 'Tahun', 'Kelas', 'Tahap Terkini', 'Pencapaian']], body: tableData, theme: 'grid', headStyles: { fillColor: [51, 65, 85] }, styles: { fontSize: 10 } });
                 doc.save(`Laporan_Prestasi_${new Date().toISOString().split('T')[0]}.pdf`);
             };
 
@@ -411,57 +467,60 @@
             const stats = useMemo(() => {
                 let targetStudents = students;
 
-                // 1. Filter Logic
-                if (reportFilterYear) {
-                    targetStudents = targetStudents.filter(s => s.tahun === reportFilterYear);
-                }
-                if (reportFilterClass) {
-                    targetStudents = targetStudents.filter(s => s.kelas === reportFilterClass);
-                }
+                if (reportFilterYear) targetStudents = targetStudents.filter(s => s.tahun === reportFilterYear);
+                if (reportFilterClass) targetStudents = targetStudents.filter(s => s.kelas === reportFilterClass);
 
                 let totalStudents = 0;
-                const byTahap = {
-                    'Iqra 1': 0, 'Iqra 2': 0, 'Iqra 3': 0, 
-                    'Iqra 4': 0, 'Iqra 5': 0, 'Iqra 6': 0,
-                    'Al-Quran': 0, 'Khatam': 0
-                };
-                
+                const byTahap = { 'Iqra 1': 0, 'Iqra 2': 0, 'Iqra 3': 0, 'Iqra 4': 0, 'Iqra 5': 0, 'Iqra 6': 0, 'Al-Quran': 0, 'Khatam': 0 };
                 const juzukDist = Array(30).fill(0);
 
                 targetStudents.forEach(s => {
                     const log = getLatestLog(s.id);
                     if (log) {
-                        // Filter by Level Category
                         let matchLevel = true;
                         if (reportFilterLevel) {
                             if (reportFilterLevel === 'Iqra' && !log.tahap.startsWith('Iqra')) matchLevel = false;
                             else if (reportFilterLevel === 'Al-Quran' && log.tahap !== 'Al-Quran') matchLevel = false;
                             else if (reportFilterLevel === 'Khatam' && log.tahap !== 'Khatam') matchLevel = false;
                         }
-
                         if (matchLevel) {
                             totalStudents++; 
-                            
-                            if (log.tahap.startsWith('Iqra')) {
-                                if (byTahap[log.tahap] !== undefined) byTahap[log.tahap]++;
-                            }
-                            else if (log.tahap === 'Al-Quran') {
-                                byTahap['Al-Quran']++;
-                                if(log.juzuk > 0 && log.juzuk <= 30) juzukDist[log.juzuk - 1]++;
-                            }
-                            else if (log.tahap === 'Khatam') {
-                                byTahap['Khatam']++;
-                            }
+                            if (log.tahap.startsWith('Iqra')) { if (byTahap[log.tahap] !== undefined) byTahap[log.tahap]++; }
+                            else if (log.tahap === 'Al-Quran') { byTahap['Al-Quran']++; if(log.juzuk > 0 && log.juzuk <= 30) juzukDist[log.juzuk - 1]++; }
+                            else if (log.tahap === 'Khatam') { byTahap['Khatam']++; }
                         }
-                    } else if (!reportFilterLevel) {
-                        totalStudents++;
+                    } else if (!reportFilterLevel) { totalStudents++; }
+                });
+
+                // --- KPI LOGIC ---
+                const passLevels = ['Iqra 4', 'Iqra 5', 'Iqra 6', 'Al-Quran', 'Khatam'];
+                const failLevels = ['Iqra 1', 'Iqra 2', 'Iqra 3'];
+                let countPass = 0;
+                let countFail = 0;
+
+                targetStudents.forEach(s => {
+                    const match = s.tahun.toString().match(/(\d+)/);
+                    const y = match ? parseInt(match[0]) : NaN;
+                    const isTargetYear = !isNaN(y) && y >= 2 && y <= 6;
+
+                    if (isTargetYear) {
+                        const log = getLatestLog(s.id);
+                        if (log) {
+                            if (passLevels.includes(log.tahap)) countPass++;
+                            else if (failLevels.includes(log.tahap)) countFail++;
+                        }
                     }
                 });
+
+                const totalCohort = targetStudents.length; // Base on currently filtered total
+                const percentPass = totalCohort > 0 ? ((countPass / totalCohort) * 100).toFixed(1) : "0.0";
+                const percentFail = totalCohort > 0 ? ((countFail / totalCohort) * 100).toFixed(1) : "0.0";
 
                 return { 
                     totalStudents, 
                     dataByTahap: Object.keys(byTahap).map(k => ({ name: k, value: byTahap[k] })),
-                    dataByJuzuk: juzukDist.map((c, i) => ({ juzuk: `J${i+1}`, count: c })) 
+                    dataByJuzuk: juzukDist.map((c, i) => ({ juzuk: `J${i+1}`, count: c })),
+                    kpi: { pass: countPass, fail: countFail, total: totalCohort, pPass: percentPass, pFail: percentFail }
                 };
             }, [students, logs, reportFilterClass, reportFilterYear, reportFilterLevel]);
 
@@ -471,15 +530,6 @@
                         <AlertCircle className="w-16 h-16 text-slate-400 mb-4" />
                         <h1 className="text-2xl font-bold text-slate-800 mb-2">Konfigurasi Diperlukan</h1>
                         <p className="text-slate-600 max-w-lg mb-6">Sila paste URL Google Apps Script anda ke dalam kod pada baris <code>const GOOGLE_SCRIPT_URL</code>.</p>
-                        <div className="bg-white p-6 rounded border border-slate-200 shadow-sm text-sm text-left">
-                            <p className="mb-2 font-semibold text-slate-700">Langkah Mudah:</p>
-                            <ol className="list-decimal list-inside space-y-1 text-slate-600">
-                                <li>Buka fail HTML dalam Notepad.</li>
-                                <li>Cari <b>const GOOGLE_SCRIPT_URL = "..."</b></li>
-                                <li>Masukkan URL Web App Google Script anda.</li>
-                                <li>Simpan dan Refresh.</li>
-                            </ol>
-                        </div>
                     </div>
                 );
             }
@@ -560,6 +610,8 @@
                                     {selectedStudentId && (() => {
                                         const lastLog = getLatestLog(selectedStudentId);
                                         const curStudent = students.find(s => s.id === selectedStudentId);
+                                        const studentHistory = logs.filter(l => l.studentId === selectedStudentId).slice(0, 10);
+
                                         return (
                                             <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-sm">
                                                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">
@@ -578,7 +630,28 @@
                                                         <div className="flex justify-between items-center"><span className="text-slate-500">Kualiti</span> <span className="text-slate-800 italic">{lastLog.kualiti}</span></div>
                                                     </div>
                                                 ) : <p className="text-slate-400 italic text-sm py-2 text-center">Tiada rekod bacaan sebelum ini.</p>}
-                                                <button onClick={() => generateIndividualPDF(curStudent)} className="mt-6 w-full bg-white border border-slate-300 text-slate-700 py-2.5 rounded-lg text-sm font-semibold hover:bg-slate-50 transition-all flex items-center justify-center shadow-sm">
+                                                
+                                                {/* AI ANALYSIS BUTTON */}
+                                                <button 
+                                                    onClick={() => handleAnalyzeStudent(curStudent, studentHistory)} 
+                                                    disabled={aiAnalysisLoading || !lastLog}
+                                                    className={`mt-6 w-full border py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center shadow-sm transition-all ${aiAnalysisLoading ? 'bg-slate-100 text-slate-400' : 'bg-white border-indigo-300 text-indigo-600 hover:bg-indigo-50'}`}
+                                                >
+                                                    {aiAnalysisLoading ? (
+                                                        <span>Menganalisis...</span>
+                                                    ) : (
+                                                        <><Sparkles className="w-4 h-4 mr-2 text-indigo-500"/> Analisis Prestasi AI</>
+                                                    )}
+                                                </button>
+
+                                                {aiAnalysisResult && (
+                                                    <div className="mt-4 p-4 bg-indigo-50 rounded-lg border border-indigo-100 text-sm text-slate-700 animate-fade-in">
+                                                        <div className="flex items-center mb-2"><Sparkles className="w-3 h-3 mr-2 text-indigo-500"/><span className="font-bold text-indigo-700">Rumusan AI:</span></div>
+                                                        <div dangerouslySetInnerHTML={{ __html: aiAnalysisResult }} className="leading-relaxed ml-4" />
+                                                    </div>
+                                                )}
+
+                                                <button onClick={() => generateIndividualPDF(curStudent)} className="mt-3 w-full bg-white border border-slate-300 text-slate-700 py-2.5 rounded-lg text-sm font-semibold hover:bg-slate-50 transition-all flex items-center justify-center shadow-sm">
                                                     <Download className="w-4 h-4 mr-2"/> Laporan Individu
                                                 </button>
                                             </div>
@@ -620,7 +693,23 @@
                                                         ))}
                                                     </div>
                                                 </div>
-                                                <div className="md:col-span-2"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Catatan Guru</label><textarea rows="2" value={currentRecord.catatan} onChange={(e) => setCurrentRecord({...currentRecord, catatan: e.target.value})} className="w-full border-slate-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-slate-500 bg-slate-50 text-slate-700" placeholder="Contoh: Perlu perbaiki makhraj..."></textarea></div>
+                                                
+                                                {/* AI COMMENT GENERATOR */}
+                                                <div className="md:col-span-2 relative">
+                                                    <div className="flex justify-between items-end mb-1">
+                                                        <label className="block text-xs font-bold text-slate-500 uppercase">Catatan Guru</label>
+                                                        <button 
+                                                            type="button"
+                                                            onClick={handleGenerateComment}
+                                                            disabled={aiCommentLoading || !currentRecord.tahap}
+                                                            className="text-xs flex items-center text-purple-600 hover:text-purple-800 font-semibold disabled:opacity-50"
+                                                        >
+                                                            <Sparkles className="w-3 h-3 mr-1"/> 
+                                                            {aiCommentLoading ? "Menjana..." : "Auto-Ulasan AI"}
+                                                        </button>
+                                                    </div>
+                                                    <textarea rows="2" value={currentRecord.catatan} onChange={(e) => setCurrentRecord({...currentRecord, catatan: e.target.value})} className="w-full border-slate-300 rounded-lg p-2.5 border focus:ring-2 focus:ring-slate-500 bg-slate-50 text-slate-700" placeholder="Contoh: Perlu perbaiki makhraj..."></textarea>
+                                                </div>
                                             </div>
                                             <div className="flex justify-end pt-4 border-t border-slate-100">
                                                 <button type="submit" disabled={!selectedStudentId} className="bg-slate-800 text-white px-8 py-3 rounded-lg font-medium shadow hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center">
@@ -633,12 +722,15 @@
                             </div>
                         )}
 
+                        {/* Murid & Laporan Tabs (Same as before) */}
                         {activeTab === 'murid' && (
                             <div className="space-y-8">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-                                    <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 flex flex-col">
-                                        <h3 className="font-bold text-xl text-slate-800 mb-6 flex items-center border-b pb-4 border-slate-100">
-                                            <Users className="w-6 h-6 mr-3 text-slate-600"/> Pendaftaran Manual
+                                    {/* Manual Registration Form */}
+                                    <div id="studentForm" className={`p-8 rounded-xl shadow-sm border border-slate-200 flex flex-col transition-colors ${isEditing ? 'bg-yellow-50 border-yellow-200' : 'bg-white'}`}>
+                                        <h3 className={`font-bold text-xl mb-6 flex items-center border-b pb-4 border-slate-100 ${isEditing ? 'text-yellow-800' : 'text-slate-800'}`}>
+                                            <Users className={`w-6 h-6 mr-3 ${isEditing ? 'text-yellow-600' : 'text-slate-600'}`}/> 
+                                            {isEditing ? 'Kemaskini Maklumat Murid' : 'Pendaftaran Manual'}
                                         </h3>
                                         <div className="flex-1 flex flex-col justify-between gap-5">
                                             <div className="space-y-4">
@@ -648,10 +740,20 @@
                                                     <input type="text" placeholder="Kelas (Contoh: Ibnu Sina)" value={newStudentClass} onChange={(e) => setNewStudentClass(e.target.value)} className="w-full border-slate-300 p-3 rounded-lg border bg-slate-50 focus:ring-2 focus:ring-slate-500 outline-none transition-all text-slate-700"/>
                                                 </div>
                                             </div>
-                                            <button onClick={handleAddStudent} className="w-full bg-slate-700 text-white py-3 rounded-lg hover:bg-slate-600 font-medium shadow-sm transition-colors mt-4">Daftar Murid</button>
+                                            <div className="flex gap-3 mt-4">
+                                                <button onClick={handleAddOrUpdateStudent} className={`flex-1 text-white py-3 rounded-lg font-medium shadow-sm transition-colors ${isEditing ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-slate-700 hover:bg-slate-600'}`}>
+                                                    {isEditing ? 'Kemaskini' : 'Daftar Murid'}
+                                                </button>
+                                                {isEditing && (
+                                                    <button onClick={cancelEdit} className="bg-slate-200 text-slate-600 px-6 py-3 rounded-lg font-medium hover:bg-slate-300">
+                                                        Batal
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 
+                                    {/* CSV Upload */}
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 flex flex-col">
                                         <h3 className="font-bold text-xl text-slate-800 mb-6 flex items-center border-b pb-4 border-slate-100">
                                             <Upload className="w-6 h-6 mr-3 text-slate-600"/> Import CSV
@@ -677,6 +779,7 @@
                                     </div>
                                 </div>
 
+                                {/* Students Table */}
                                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mt-6">
                                     <div className="p-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
                                         <h3 className="font-bold text-slate-700">Direktori Murid</h3>
@@ -712,12 +815,17 @@
                                                                 {lastLog ? <span className="px-2.5 py-1 text-xs font-semibold rounded-md bg-slate-100 text-slate-700 border border-slate-200">{lastLog.tahap} {lastLog.tahap === 'Al-Quran' ? `(J${lastLog.juzuk})` : ''}</span> : <span className="text-slate-400 text-xs">-</span>}
                                                             </td>
                                                             <td className="px-6 py-4 text-right whitespace-nowrap">
-                                                                <button onClick={() => generateIndividualPDF(student)} className="text-slate-500 hover:text-slate-900 transition-colors mr-3" title="Muat Turun PDF">
-                                                                    <Download className="w-5 h-5"/>
-                                                                </button>
-                                                                <button onClick={() => handleDeleteStudent(student.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Padam Murid">
-                                                                    <Trash2 className="w-5 h-5"/>
-                                                                </button>
+                                                                <div className="flex justify-end space-x-3">
+                                                                    <button onClick={() => generateIndividualPDF(student)} className="text-slate-500 hover:text-slate-900 transition-colors" title="Muat Turun PDF">
+                                                                        <Download className="w-5 h-5"/>
+                                                                    </button>
+                                                                    <button onClick={() => handleEditClick(student)} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit Maklumat">
+                                                                        <Edit className="w-5 h-5"/>
+                                                                    </button>
+                                                                    <button onClick={() => handleDeleteStudent(student.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Padam Murid">
+                                                                        <Trash2 className="w-5 h-5"/>
+                                                                    </button>
+                                                                </div>
                                                             </td>
                                                         </tr>
                                                     ); 
@@ -763,11 +871,30 @@
                                     </button>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                    <StatCard title="Jumlah Murid Terpilih" value={stats.totalStudents} icon={Users} color="bg-slate-500" />
-                                    <StatCard title="Al-Quran" value={stats.dataByTahap.find(d => d.name === 'Al-Quran')?.value || 0} icon={BookOpen} color="bg-slate-600" />
-                                    <StatCard title="Khatam" value={stats.dataByTahap.find(d => d.name === 'Khatam')?.value || 0} icon={CheckCircle} color="bg-slate-800" />
+                                {/* KPI Cards */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <StatCard 
+                                        title="Melepasi (Tahun 2-6)" 
+                                        value={`${stats.kpi.pPass}%`} 
+                                        subtitle={`${stats.kpi.pass} daripada ${stats.kpi.total} murid`}
+                                        icon={ThumbsUp} 
+                                        color="bg-green-100 text-green-700" 
+                                    />
+                                    <StatCard 
+                                        title="Tidak Melepasi (Tahun 2-6)" 
+                                        value={`${stats.kpi.pFail}%`} 
+                                        subtitle={`${stats.kpi.fail} daripada ${stats.kpi.total} murid`}
+                                        icon={ThumbsDown} 
+                                        color="bg-red-100 text-red-700" 
+                                    />
                                 </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    <StatCard title="Jumlah Murid Terpilih" value={stats.totalStudents} icon={Users} color="bg-slate-100 text-slate-600" />
+                                    <StatCard title="Al-Quran" value={stats.dataByTahap.find(d => d.name === 'Al-Quran')?.value || 0} icon={BookOpen} color="bg-blue-100 text-blue-600" />
+                                    <StatCard title="Khatam" value={stats.dataByTahap.find(d => d.name === 'Khatam')?.value || 0} icon={CheckCircle} color="bg-purple-100 text-purple-600" />
+                                </div>
+
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 h-96">
                                         <h4 className="text-sm font-bold text-slate-500 uppercase mb-4">Statistik Tahap</h4>
