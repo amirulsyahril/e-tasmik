@@ -36,7 +36,7 @@
     <script type="text/babel">
         // --- KONFIGURASI ---
         const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwSwGhRotEtwmwMX8LVDLfdY5a034ZcGnRXQEJTREYm1SPIJ7oSj-vjsokXCGXPrIVF/exec"; 
-        const apiKey = ""; // API Key akan disediakan oleh sistem semasa runtime
+        const apiKey = ""; 
 
         // --- SUPPRESS CONSOLE WARNINGS ---
         const originalConsoleError = console.error;
@@ -181,7 +181,6 @@
                 setAiAnalysisLoading(true);
                 setAiAnalysisResult(null); // Clear prev result
                 
-                // Prepare succinct history string
                 const historyStr = history.slice(0, 5).map(h => `${formatDate(h.tarikh)}: ${h.tahap} (Kualiti: ${h.kualiti})`).join("\n");
                 const prompt = `Analisis prestasi murid bernama ${student.name} (Tahun ${student.tahun}, Kelas ${student.kelas}) berdasarkan 5 rekod terkini:\n${historyStr}\n\nBerikan 3 poin ringkas dalam Bahasa Melayu: 1. Kekuatan, 2. Kelemahan/Fokus, 3. Kata Semangat. Format output: HTML list ringkas (<ul><li>...</li></ul>).`;
 
@@ -492,11 +491,12 @@
                     } else if (!reportFilterLevel) { totalStudents++; }
                 });
 
-                // --- KPI LOGIC ---
+                // --- KPI LOGIC (Corrected: Denominator = Only Students Year 2-6 in Target) ---
                 const passLevels = ['Iqra 4', 'Iqra 5', 'Iqra 6', 'Al-Quran', 'Khatam'];
                 const failLevels = ['Iqra 1', 'Iqra 2', 'Iqra 3'];
                 let countPass = 0;
                 let countFail = 0;
+                let kpiDenominator = 0; // Count of students in Year 2-6 within the filter
 
                 targetStudents.forEach(s => {
                     const match = s.tahun.toString().match(/(\d+)/);
@@ -504,6 +504,7 @@
                     const isTargetYear = !isNaN(y) && y >= 2 && y <= 6;
 
                     if (isTargetYear) {
+                        kpiDenominator++; // Only add to denominator if Year 2-6
                         const log = getLatestLog(s.id);
                         if (log) {
                             if (passLevels.includes(log.tahap)) countPass++;
@@ -512,15 +513,14 @@
                     }
                 });
 
-                const totalCohort = targetStudents.length; // Base on currently filtered total
-                const percentPass = totalCohort > 0 ? ((countPass / totalCohort) * 100).toFixed(1) : "0.0";
-                const percentFail = totalCohort > 0 ? ((countFail / totalCohort) * 100).toFixed(1) : "0.0";
+                const percentPass = kpiDenominator > 0 ? ((countPass / kpiDenominator) * 100).toFixed(1) : "0.0";
+                const percentFail = kpiDenominator > 0 ? ((countFail / kpiDenominator) * 100).toFixed(1) : "0.0";
 
                 return { 
                     totalStudents, 
                     dataByTahap: Object.keys(byTahap).map(k => ({ name: k, value: byTahap[k] })),
                     dataByJuzuk: juzukDist.map((c, i) => ({ juzuk: `J${i+1}`, count: c })),
-                    kpi: { pass: countPass, fail: countFail, total: totalCohort, pPass: percentPass, pFail: percentFail }
+                    kpi: { pass: countPass, fail: countFail, total: kpiDenominator, pPass: percentPass, pFail: percentFail }
                 };
             }, [students, logs, reportFilterClass, reportFilterYear, reportFilterLevel]);
 
@@ -722,7 +722,6 @@
                             </div>
                         )}
 
-                        {/* Murid & Laporan Tabs (Same as before) */}
                         {activeTab === 'murid' && (
                             <div className="space-y-8">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
