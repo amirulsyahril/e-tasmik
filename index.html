@@ -491,36 +491,10 @@
                     } else if (!reportFilterLevel) { totalStudents++; }
                 });
 
-                // --- KPI LOGIC (Corrected: Denominator = Only Students Year 2-6 in Target) ---
-                const passLevels = ['Iqra 4', 'Iqra 5', 'Iqra 6', 'Al-Quran', 'Khatam'];
-                const failLevels = ['Iqra 1', 'Iqra 2', 'Iqra 3'];
-                let countPass = 0;
-                let countFail = 0;
-                let kpiDenominator = 0; // Count of students in Year 2-6 within the filter
-
-                targetStudents.forEach(s => {
-                    const match = s.tahun.toString().match(/(\d+)/);
-                    const y = match ? parseInt(match[0]) : NaN;
-                    const isTargetYear = !isNaN(y) && y >= 2 && y <= 6;
-
-                    if (isTargetYear) {
-                        kpiDenominator++; // Only add to denominator if Year 2-6
-                        const log = getLatestLog(s.id);
-                        if (log) {
-                            if (passLevels.includes(log.tahap)) countPass++;
-                            else if (failLevels.includes(log.tahap)) countFail++;
-                        }
-                    }
-                });
-
-                const percentPass = kpiDenominator > 0 ? ((countPass / kpiDenominator) * 100).toFixed(1) : "0.0";
-                const percentFail = kpiDenominator > 0 ? ((countFail / kpiDenominator) * 100).toFixed(1) : "0.0";
-
                 return { 
                     totalStudents, 
                     dataByTahap: Object.keys(byTahap).map(k => ({ name: k, value: byTahap[k] })),
-                    dataByJuzuk: juzukDist.map((c, i) => ({ juzuk: `J${i+1}`, count: c })),
-                    kpi: { pass: countPass, fail: countFail, total: kpiDenominator, pPass: percentPass, pFail: percentFail }
+                    dataByJuzuk: juzukDist.map((c, i) => ({ juzuk: `J${i+1}`, count: c }))
                 };
             }, [students, logs, reportFilterClass, reportFilterYear, reportFilterLevel]);
 
@@ -868,24 +842,6 @@
                                     <button onClick={generateFullReportPDF} className="flex items-center bg-slate-700 text-white px-5 py-2.5 rounded-lg shadow-sm hover:bg-slate-600 transition-colors font-medium text-sm w-full md:w-auto justify-center">
                                         <Printer className="w-4 h-4 mr-2"/> Cetak Laporan
                                     </button>
-                                </div>
-
-                                {/* KPI Cards */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <StatCard 
-                                        title="Melepasi (Tahun 2-6)" 
-                                        value={`${stats.kpi.pPass}%`} 
-                                        subtitle={`${stats.kpi.pass} daripada ${stats.kpi.total} murid`}
-                                        icon={ThumbsUp} 
-                                        color="bg-green-100 text-green-700" 
-                                    />
-                                    <StatCard 
-                                        title="Tidak Melepasi (Tahun 2-6)" 
-                                        value={`${stats.kpi.pFail}%`} 
-                                        subtitle={`${stats.kpi.fail} daripada ${stats.kpi.total} murid`}
-                                        icon={ThumbsDown} 
-                                        color="bg-red-100 text-red-700" 
-                                    />
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
