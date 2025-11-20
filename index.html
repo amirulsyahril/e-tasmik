@@ -69,6 +69,7 @@
         const ThumbsUp = (props) => <IconBase {...props}><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></IconBase>;
         const ThumbsDown = (props) => <IconBase {...props}><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></IconBase>;
         const Sparkles = (props) => <IconBase {...props}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" /></IconBase>;
+        const Search = (props) => <IconBase {...props}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></IconBase>;
 
         // --- Helper Functions ---
         const calculateJuzuk = (page) => {
@@ -133,6 +134,7 @@
             const [newStudentName, setNewStudentName] = useState('');
             const [newStudentYear, setNewStudentYear] = useState('');
             const [newStudentClass, setNewStudentClass] = useState('');
+            const [searchQuery, setSearchQuery] = useState(''); // New state for search
 
             // Report Filter States
             const [reportFilterYear, setReportFilterYear] = useState('');
@@ -491,10 +493,36 @@
                     } else if (!reportFilterLevel) { totalStudents++; }
                 });
 
+                // --- KPI LOGIC ---
+                const passLevels = ['Iqra 4', 'Iqra 5', 'Iqra 6', 'Al-Quran', 'Khatam'];
+                const failLevels = ['Iqra 1', 'Iqra 2', 'Iqra 3'];
+                let countPass = 0;
+                let countFail = 0;
+                let kpiDenominator = 0; // Count of students in Year 2-6 within the filter
+
+                targetStudents.forEach(s => {
+                    const match = s.tahun.toString().match(/(\d+)/);
+                    const y = match ? parseInt(match[0]) : NaN;
+                    const isTargetYear = !isNaN(y) && y >= 2 && y <= 6;
+
+                    if (isTargetYear) {
+                        kpiDenominator++; // Only add to denominator if Year 2-6
+                        const log = getLatestLog(s.id);
+                        if (log) {
+                            if (passLevels.includes(log.tahap)) countPass++;
+                            else if (failLevels.includes(log.tahap)) countFail++;
+                        }
+                    }
+                });
+
+                const percentPass = kpiDenominator > 0 ? ((countPass / kpiDenominator) * 100).toFixed(1) : "0.0";
+                const percentFail = kpiDenominator > 0 ? ((countFail / kpiDenominator) * 100).toFixed(1) : "0.0";
+
                 return { 
                     totalStudents, 
                     dataByTahap: Object.keys(byTahap).map(k => ({ name: k, value: byTahap[k] })),
-                    dataByJuzuk: juzukDist.map((c, i) => ({ juzuk: `J${i+1}`, count: c }))
+                    dataByJuzuk: juzukDist.map((c, i) => ({ juzuk: `J${i+1}`, count: c })),
+                    kpi: { pass: countPass, fail: countFail, total: kpiDenominator, pPass: percentPass, pFail: percentFail }
                 };
             }, [students, logs, reportFilterClass, reportFilterYear, reportFilterLevel]);
 
@@ -549,6 +577,8 @@
                     </nav>
 
                     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
+                        {/* ... (Tabs Rekod & Murid Logic omitted for brevity, logic is identical to previous) ... */}
+                        
                         {activeTab === 'rekod' && (
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                                 <div className="lg:col-span-1 space-y-6">
@@ -696,6 +726,7 @@
                             </div>
                         )}
 
+                        {/* Murid & Laporan Tabs (Same as before) */}
                         {activeTab === 'murid' && (
                             <div className="space-y-8">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
@@ -756,7 +787,19 @@
                                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mt-6">
                                     <div className="p-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
                                         <h3 className="font-bold text-slate-700">Direktori Murid</h3>
-                                        <div className="flex space-x-2">
+                                        <div className="flex items-center space-x-2">
+                                            <div className="relative">
+                                                <span className="absolute inset-y-0 left-0 flex items-center pl-2 text-slate-400">
+                                                    <Search className="w-4 h-4"/>
+                                                </span>
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Carian Nama..." 
+                                                    value={searchQuery}
+                                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                                    className="pl-8 pr-2 py-1.5 text-sm border-slate-300 rounded-md border focus:ring-1 focus:ring-slate-500 text-slate-700 w-40"
+                                                />
+                                            </div>
                                             <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="border-slate-300 rounded-md border p-1.5 text-sm bg-white focus:ring-1 focus:ring-slate-500 text-slate-700">
                                                 <option value="">Semua Tahun</option>{yearList.map(y => <option key={y} value={y}>{y}</option>)}
                                             </select>
@@ -777,7 +820,9 @@
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-slate-200">
-                                                {filteredStudents.map((student) => { 
+                                                {filteredStudents
+                                                    .filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                                                    .map((student) => { 
                                                     const lastLog = getLatestLog(student.id); 
                                                     return (
                                                         <tr key={student.id} className="hover:bg-slate-50 transition-colors">
@@ -842,6 +887,24 @@
                                     <button onClick={generateFullReportPDF} className="flex items-center bg-slate-700 text-white px-5 py-2.5 rounded-lg shadow-sm hover:bg-slate-600 transition-colors font-medium text-sm w-full md:w-auto justify-center">
                                         <Printer className="w-4 h-4 mr-2"/> Cetak Laporan
                                     </button>
+                                </div>
+
+                                {/* KPI Cards - New Section */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <StatCard 
+                                        title="Melepasi (Tahun 2-6)" 
+                                        value={`${stats.kpi.pPass}%`} 
+                                        subtitle={`${stats.kpi.pass} daripada ${stats.kpi.total} murid`}
+                                        icon={ThumbsUp} 
+                                        color="bg-green-100 text-green-700" 
+                                    />
+                                    <StatCard 
+                                        title="Tidak Melepasi (Tahun 2-6)" 
+                                        value={`${stats.kpi.pFail}%`} 
+                                        subtitle={`${stats.kpi.fail} daripada ${stats.kpi.total} murid`}
+                                        icon={ThumbsDown} 
+                                        color="bg-red-100 text-red-700" 
+                                    />
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
